@@ -19,12 +19,12 @@ def p_ternarize(x, p):
     tf.add_to_collection('update_thre_op', update_thre)
 
     mask = tf.zeros(shape)
-    mask = tf.select((x > thre) | (x < -thre), tf.ones(shape), mask)
+    mask = tf.where((x > thre) | (x < -thre), tf.ones(shape), mask)
 
     with G.gradient_override_map({"Sign": "Identity", "Mul": "Add"}):
         w =  tf.sign(x) * tf.stop_gradient(mask)
 
-    tf.histogram_summary(w.name, w)
+    tf.summary.histogram(w.name, w)
     return w
 
 def tw_ternarize(x, thre):
@@ -36,20 +36,20 @@ def tw_ternarize(x, thre):
     w_p = tf.get_variable('Wp', collections=[tf.GraphKeys.VARIABLES, 'positives'], initializer=1.0)
     w_n = tf.get_variable('Wn', collections=[tf.GraphKeys.VARIABLES, 'negatives'], initializer=1.0)
 
-    tf.scalar_summary(w_p.name, w_p)
-    tf.scalar_summary(w_n.name, w_n)
+    tf.summary.scalar(w_p.name, w_p)
+    tf.summary.scalar(w_n.name, w_n)
 
     mask = tf.ones(shape)
-    mask_p = tf.select(x > thre_x, tf.ones(shape) * w_p, mask)
-    mask_np = tf.select(x < -thre_x, tf.ones(shape) * w_n, mask_p)
-    mask_z = tf.select((x < thre_x) & (x > - thre_x), tf.zeros(shape), mask)
+    mask_p = tf.where(x > thre_x, tf.ones(shape) * w_p, mask)
+    mask_np = tf.where(x < -thre_x, tf.ones(shape) * w_n, mask_p)
+    mask_z = tf.where((x < thre_x) & (x > - thre_x), tf.zeros(shape), mask)
 
     with G.gradient_override_map({"Sign": "Identity", "Mul": "Add"}):
         w =  tf.sign(x) * tf.stop_gradient(mask_z)
 
     w = w * mask_np
 
-    tf.histogram_summary(w.name, w)
+    tf.summary.histogram(w.name, w)
     return w
 
 

@@ -34,10 +34,16 @@ class Model(ModelDesc):
         super(Model, self).__init__()
         self.n = n
 
-    def _get_input_vars(self):
-        return [InputVar(tf.float32, [None, 32, 32, 3], 'input'),
-                InputVar(tf.int32, [None], 'label')
+    def _get_inputs(self):
+        return [InputDesc(tf.float32, [None, 32, 32, 3], 'input'),
+                InputDesc(tf.int32, [None], 'label')
                ]
+
+    def _get_optimizer(self):
+        lr = tf.get_variable('learning_rate', initializer=0.01, trainable=False)
+        opt = tf.train.MomentumOptimizer(lr, 0.9)
+        tf.summary.scalar('learning_rate', lr)
+        return opt
 
     def _build_graph(self, input_vars):
         image, label = input_vars
@@ -58,7 +64,7 @@ class Model(ModelDesc):
                           nl=tf.identity, use_bias=False,
                           W_init=tf.random_normal_initializer(stddev=np.sqrt(2.0/9/channel)))
 
-        def residual(name, l, increase_dim=False, first=False):
+        def residual(name, l, increase_dim=False, first=False, btn_channel=0):
             shape = l.get_shape().as_list()
             in_channel = shape[3]
 
@@ -66,7 +72,10 @@ class Model(ModelDesc):
                 out_channel = in_channel * 2
                 stride1 = 2
             else:
-                out_channel = in_channel
+                if btn_channel != 0:
+                    out_channel = btn_channel
+                else:
+                    out_channel = in_channel
                 stride1 = 1
 
             with tf.variable_scope(name) as scope:
@@ -92,7 +101,10 @@ class Model(ModelDesc):
         l = tf.nn.relu(l)
         l = residual('res1.0', l, first=True)
         for k in range(1, self.n):
-            l = residual('res1.{}'.format(k), l)
+            if k == 6:
+                l = residual('res1.{}'.format(k), l, btn_channel=1)
+            else:
+                l = residual('res1.{}'.format(k), l)
         # 32,c=16
 
         l = residual('res2.0', l, increase_dim=True)
@@ -112,7 +124,7 @@ class Model(ModelDesc):
         tf.get_variable = old_get_variable
         prob = tf.nn.softmax(logits, name='output')
 
-        cost = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, label)
+        cost = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=label)
         cost = tf.reduce_mean(cost, name='cross_entropy_loss')
 
         wrong = prediction_incorrect(logits, label)
@@ -123,17 +135,15 @@ class Model(ModelDesc):
         # weight decay on all W of fc layers
         wd_w = tf.train.exponential_decay(0.0002, get_global_step_var(),
                                           480000, 0.2, True)
-        wd_cost = tf.mul(wd_w, regularize_cost('.*/W', tf.nn.l2_loss), name='wd_cost')
+        wd_cost = tf.multiply(wd_w, regularize_cost('.*/W', tf.nn.l2_loss), name='wd_cost')
         add_moving_summary(cost, wd_cost)
 
-        add_param_summary([('.*/W', ['histogram'])])   # monitor W
-
-        writer = tf.train.SummaryWriter('log', graph=tf.get_default_graph())
+        add_param_summary(('.*/W', ['histogram']))   # monitor W    
         self.cost = tf.add_n([cost, wd_cost], name='cost')
 
 def get_data(train_or_test):
     isTrain = train_or_test == 'train'
-    ds = dataset.Cifar10(train_or_test)
+    ds = dataset.Cifar10(train_or_test, dir='/data/')
     pp_mean = ds.get_per_pixel_mean()
     if isTrain:
         augmentors = [
@@ -170,32 +180,22 @@ def get_config(nsize):
 
     # prepare dataset
     dataset_train = get_data('train')
-    step_per_epoch = dataset_train.size()
     dataset_test = get_data('test')
 
     sess_config = get_default_sess_config(0.9)
 
-    get_global_step_var()
-    lr = tf.Variable(0.1, trainable=False, name='learning_rate')
-    tf.scalar_summary('learning_rate', lr)
-
-    optimizer = tf.train.MomentumOptimizer(lr, 0.9)
-
     return TrainConfig(
-        dataset=dataset_train,
-        optimizer=optimizer,
-        callbacks=Callbacks([
-            StatPrinter(),
-            ModelSaver(),
+        dataflow=dataset_train,
+        callbacks=[
+            ModelSaver(checkpoint_dir='/data/tmp'),
             InferenceRunner(dataset_test,
                 [ScalarStats('cost'), ClassificationError()]),
             # PruneRunner(),
             ScheduledHyperParamSetter('learning_rate',
                                       [(1, 0.1), (82, 0.01), (123, 0.001), (150, 0.0001)])
-        ]),
+        ],
         session_config=sess_config,
         model=Model(n=nsize),
-        step_per_epoch=step_per_epoch,
         max_epoch=400,
     )
 

@@ -10,7 +10,7 @@ def p_ternarize(x, p):
     x = tf.tanh(x)
     shape = x.get_shape()
 
-    thre = tf.get_variable('T', trainable=False, collections=[tf.GraphKeys.VARIABLES, 'thresholds'],
+    thre = tf.get_variable('T', trainable=False, collections=[tf.GraphKeys.GLOBAL_VARIABLES, 'thresholds'],
             initializer=0.05)
     flat_x = tf.reshape(x, [-1])
     k = int(flat_x.get_shape().dims[0].value * (1 - p))
@@ -33,8 +33,8 @@ def tw_ternarize(x, thre):
 
     thre_x = tf.stop_gradient(tf.reduce_max(tf.abs(x)) * thre)
 
-    w_p = tf.get_variable('Wp', collections=[tf.GraphKeys.VARIABLES, 'positives'], initializer=1.0)
-    w_n = tf.get_variable('Wn', collections=[tf.GraphKeys.VARIABLES, 'negatives'], initializer=1.0)
+    w_p = tf.get_variable('Wp', collections=[tf.GraphKeys.GLOBAL_VARIABLES, 'positives'], initializer=1.0)
+    w_n = tf.get_variable('Wn', collections=[tf.GraphKeys.GLOBAL_VARIABLES, 'negatives'], initializer=1.0)
 
     tf.summary.scalar(w_p.name, w_p)
     tf.summary.scalar(w_n.name, w_n)
